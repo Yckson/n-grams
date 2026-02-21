@@ -1,27 +1,26 @@
 import streamlit as st
-import os
-import glob
 from collections import defaultdict
 import re
 import pandas as pd
+import os
+from datasets import load_dataset
 
 
 x = 3
-filesPath = "/dataset"
 
 def ngrams(listOfWords, window=3):
     listNgrams = []
 
-    for i in range (0, len(listOfWords)):
-        windowSlice = listOfWords[i:window-1]
+    for i in range(0, len(listOfWords) - window + 1):
+        windowSlice = listOfWords[i:i+window]
         listNgrams.append(tuple(windowSlice))
-    
+
     return listNgrams
 
 def jaccard (text1, text2, window=3):
 
-    text1Splitted = text1.lower().split()
-    text2Splitted = text2.lower().split()
+    text1Splitted = re.findall(r"[\w]+|==|!=|<=|>=|&&|\|\||->|::|>>|<<|\+\+|--|[.,!?;(){}\[\]=+\-*/%^&|~<>:#@]", text1.lower())
+    text2Splitted = re.findall(r"[\w]+|==|!=|<=|>=|&&|\|\||->|::|>>|<<|\+\+|--|[.,!?;(){}\[\]=+\-*/%^&|~<>:#@]", text2.lower())
 
     set1 = set(ngrams(text1Splitted, window))
     set2 = set(ngrams(text2Splitted, window))
@@ -46,7 +45,7 @@ text2 = col2.text_area("Texto suspeito")
 
 if (text1 and text2 and clicked):
     similarity = jaccard(text1, text2, x)
-    st.write(similarity)
+    st.write(f"Similaridade: {(similarity * 100):.2f}%")
 
 
 # ------------------------------------------------------------------
@@ -56,27 +55,35 @@ def codeTokenizer (code):
 
 
 @st.cache_resource
-def trainModel (sourcePath="/dataset", n=3):
-    
-    model = defaultdict (lambda: defaultdict(int))
+def trainModel(dataset_name="bigcode/the-stack", data_dir="data/c", max_samples=500, n=3, token=None):
+    model = defaultdict(lambda: defaultdict(int))
 
-    search = os.path.join(sourcePath, "*.c")
-    cFiles = glob.glob(search)
+    try:
+        kwargs = dict(streaming=True, split="train")
+        if data_dir:
+            kwargs["data_dir"] = data_dir
+        if token:
+            kwargs["token"] = token
+        ds = load_dataset(dataset_name, **kwargs)
+    except Exception as e:
+        return None, str(e)
 
-    if not cFiles:
-        return None
+    count = 0
+    for sample in ds:
+        if count >= max_samples:
+            break
+        code = sample.get("content", sample.get("code", ""))
+        tokens = codeTokenizer(code)
+        for i in range(len(tokens) - n + 1):
+            history = tuple(tokens[i:i + n - 1])
+            nextW = tokens[i + n - 1]
+            model[history][nextW] += 1
+        count += 1
 
-    for file in cFiles:
-        with open(file, "r", encoding="utf-8", errors="ignore") as f:
-            code = f.read()
-            tokens = codeTokenizer(code)
+    if not model:
+        return None, "Nenhum dado encontrado no dataset."
 
-            for i in range (0, len(tokens) - n + 1):
-                history = tuple(tokens[i:i+n-1])
-                nextW = tokens[i+n-1]
-                model[history][nextW] += 1
-    
-    return model
+    return model, None
 
 
 def nextWord (model, currText, n=3):
@@ -96,40 +103,54 @@ def nextWord (model, currText, n=3):
 
 
 st.title("Predição de código")
-filesPath = st.sidebar.text_input("Caminho do dataset: ")
 
-if "_code_widget" not in st.session_state:
-    st.session_state["_code_widget"] = "int main"
+dataset_name = st.sidebar.text_input("Dataset HuggingFace:", value="bigcode/the-stack")
+data_dir = st.sidebar.text_input("Subset (data_dir):", value="data/c")
+max_samples = st.sidebar.slider("Amostras para treino:", min_value=100, max_value=20000, value=500, step=100)
+hf_token = st.sidebar.text_input("HuggingFace Token:", value=os.environ.get("HF_TOKEN", ""), type="password")
+train_btn = st.sidebar.button("Treinar modelo")
 
-if filesPath:
-    with st.spinner("Lendo arquivos locais e treinando modelo..."):
-        N_GRAMAS = x
-        model = trainModel(filesPath, n=N_GRAMAS)
+if "model" not in st.session_state:
+    st.session_state["model"] = None
 
-    if model is None:
-        st.error(f"Nenhum arquivo .c encontrado na pasta: {filesPath}")
+if train_btn:
+    with st.spinner(f"Baixando e treinando com {max_samples} amostras..."):
+        model, err = trainModel(dataset_name=dataset_name, data_dir=data_dir, max_samples=max_samples, n=x, token=hf_token or None)
+    if err:
+        st.error(f"Erro: {err}")
     else:
+        st.session_state["model"] = model
         st.success("Modelo treinado com sucesso!")
 
-        def append_word(word):
-            st.session_state["_code_widget"] = st.session_state["_code_widget"] + " " + word
+if st.session_state["model"] is not None:
+    model = st.session_state["model"]
 
-        codingArea = st.text_area("Digite seu código C aqui:", key="_code_widget")
+    def append_word(word):
+        st.session_state["_code_widget"] = st.session_state["_code_widget"] + " " + word
 
-        if codingArea:
-            suggest = nextWord(model, codingArea, n=N_GRAMAS)
+    if "_code_widget" not in st.session_state:
+        st.session_state["_code_widget"] = "int main"
 
-            if suggest:
-                st.write("Sugestões:")
-                cols = st.columns(len(suggest))
-                for i, (word, _) in enumerate(suggest):
-                    cols[i].button(word, key=f"sug_{i}", on_click=append_word, args=(word,))
+    codingArea = st.text_area("Digite seu código C aqui:", key="_code_widget")
 
-                words = [p for p, _ in suggest]
-                count = [c for _, c in suggest]
-                total = sum(count)
-                prob = [round(c / total * 100, 2) for c in count]
+    if codingArea:
+        suggest = nextWord(model, codingArea, n=x)
+        # Debug temporário
+        tokens = codeTokenizer(codingArea)
+        history = tuple(tokens[-(x-1):]) if len(tokens) >= x-1 else ()
+        st.write(f"Histórico buscado: `{history}` | Encontrado no modelo: `{history in model}`")
 
-                df = pd.DataFrame({"Probabilidade (%)": prob}, index=words)
-                st.write("### Probabilidade das próximas words")
-                st.bar_chart(df)
+        if suggest:
+            st.write("**Sugestões:**")
+            cols = st.columns(len(suggest))
+            for i, (word, _) in enumerate(suggest):
+                cols[i].button(word, key=f"sug_{i}", on_click=append_word, args=(word,))
+
+            words = [p for p, _ in suggest]
+            count = [c for _, c in suggest]
+            total = sum(count)
+            prob = [round(c / total * 100, 2) for c in count]
+
+            df = pd.DataFrame({"Probabilidade (%)": prob}, index=words)
+            st.write("### Probabilidade das próximas palavras")
+            st.bar_chart(df)
