@@ -183,9 +183,16 @@ def append_word(word):
 
 A implementação transforma a geração automática do pseudocódigo em um loop interativo onde o usuário é o agente de seleção. Isso é mais adequado para um editor de código assistido, pois o desenvolvedor mantém o controle sobre qual sugestão aceitar. O deslizamento da janela (`UPDATE`) é feito implicitamente por `tokens[-(n-1):]`: a cada nova chamada de `nextWord()`, o texto completo é retokenizado e os últimos (n-1) tokens formam o histórico atualizado.
 
+![](docs/images/img4.png)
+
 ---
 
 ## Funcionalidade de Detecção de Plágio
+
+<p>
+  <img src="docs/images/img0.png" width="48%" />
+  <img src="docs/images/img1.png" width="48%" />
+</p>
 
 A função `jaccard()` não tem equivalente direto no pseudocódigo fornecido, pois aplica os n-gramas para um objetivo diferente: similaridade de conjuntos em vez de modelagem de linguagem.
 
@@ -229,7 +236,7 @@ Assim, dois programas com lógica idêntica mas variáveis renomeadas produzem s
 1. Clone o repositório:
 
 ```bash
-git clone <url-do-repositorio>
+git clone https://github.com/Yckson/disciplina-inteligencia-artificial.git
 cd disciplina-inteligencia-artificial
 ```
 
@@ -255,6 +262,8 @@ streamlit run app.py
 
 A interface abrirá automaticamente no navegador em `http://localhost:8501`.
 
+![](docs/images/img2.png)
+
 ### Configuração da barra lateral
 
 | Opção | Descrição |
@@ -264,6 +273,8 @@ A interface abrirá automaticamente no navegador em `http://localhost:8501`.
 | Dataset HuggingFace | Identificador do dataset para treinamento do modelo de predição |
 | Subset (data_dir) | Subconjunto do dataset (ex: `data/c` para código C) |
 | Amostras para treino | Número de arquivos processados no treinamento |
-| HuggingFace Token | Token de acesso para datasets privados (ex: `bigcode/the-stack`) |
+| HuggingFace Token | Token de acesso para o `bigcode/the-stack` |
+
+![](docs/images/img3.png)
 
 > O token HuggingFace também pode ser definido na variável de ambiente `HF_TOKEN` para não precisar digitá-lo na interface.
