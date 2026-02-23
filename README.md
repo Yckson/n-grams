@@ -1,5 +1,7 @@
 # Modelo de Linguagem N-Grama aplicado a Código-Fonte
 
+[![Hugging Face Spaces](https://img.shields.io/badge/Demo-Hugging%20Face%20Spaces-yellow)](https://huggingface.co/spaces/Yckson/avaliacao-ia)
+
 Este projeto implementa duas funcionalidades baseadas em n-gramas: detecção de similaridade entre textos (plágio) e predição de tokens em código C. Ambas compartilham a mesma base matemática — Estimativa de Máxima Verossimilhança (MLE) com contagens de co-ocorrência de tokens.
 
 ---
