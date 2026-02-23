@@ -4,6 +4,8 @@ import re
 import pandas as pd
 import os
 from datasets import load_dataset
+from tree_sitter import Language, Parser
+import tree_sitter_c as tsc
 
 
 x = 3
@@ -82,22 +84,157 @@ def jaccard(text1, text2, window=3):
     # Retorna a proporção de n-gramas compartilhados sobre o total de n-gramas únicos
     return intersec / union
 
+
+@st.cache_resource
+def get_c_parser():
+    """
+    Cria e retorna um Parser tree-sitter configurado para a linguagem C.
+
+    O parser é cacheado pelo Streamlit para evitar recriações desnecessárias
+    a cada interação da interface.
+
+    Returns:
+        Parser: instância do parser tree-sitter pronta para uso.
+    """
+    C_LANGUAGE = Language(tsc.language(), "c")
+    parser = Parser()
+    parser.set_language(C_LANGUAGE)
+    return parser
+
+
+def normalizeCode(code):
+    """
+    Normaliza código C usando a AST gerada pelo tree-sitter.
+
+    Percorre a árvore sintática abstrata e substitui tokens que carregam
+    semântica específica do autor (identificadores, literais) por tokens
+    genéricos, preservando apenas a estrutura sintática do programa:
+
+        - Identificadores (variáveis, funções)  -> "ID"
+        - Identificadores de tipo               -> "TYPE"
+        - Literais numéricos                    -> "NUM"
+        - Literais de string e caractere        -> "STR"
+        - Comentários                           -> ignorados
+        - Demais tokens (keywords, operadores)  -> texto original
+
+    Essa representação torna dois programas com lógica idêntica mas nomes
+    de variáveis diferentes praticamente indistinguíveis na comparação por
+    n-gramas, o que aumenta significativamente a sensibilidade à detecção
+    de plágio estrutural.
+
+    Args:
+        code: string com o código-fonte C.
+
+    Returns:
+        Lista de strings com os tokens normalizados.
+    """
+    parser = get_c_parser()
+    tree = parser.parse(bytes(code, "utf-8"))
+
+    tokens = []
+
+    # Tipos de nós que devem ser substituídos por token genérico (sem recursão)
+    REPLACE_MAP = {
+        "identifier": "ID",
+        "type_identifier": "TYPE",
+        "number_literal": "NUM",
+        "true": "NUM",
+        "false": "NUM",
+        "null": "NUM",
+        "string_literal": "STR",
+        "char_literal": "STR",
+    }
+    # Tipos de nós que devem ser completamente ignorados
+    SKIP_TYPES = {"comment", "line_comment", "block_comment"}
+
+    def walk(node):
+        node_type = node.type
+
+        if node_type in SKIP_TYPES:
+            return
+
+        if node_type in REPLACE_MAP:
+            tokens.append(REPLACE_MAP[node_type])
+            return
+
+        if node.child_count == 0:
+            # Nó folha que não foi substituído: keyword, operador, pontuação
+            text = node.text.decode("utf-8").strip()
+            if text:
+                tokens.append(text)
+        else:
+            for child in node.children:
+                walk(child)
+
+    walk(tree.root_node)
+    return tokens
+
+
+def jaccardNormalized(text1, text2, window=3):
+    """
+    Calcula a similaridade de Jaccard entre dois códigos C após normalização
+    estrutural via tree-sitter.
+
+    Diferente da função jaccard(), que opera sobre os tokens brutos do texto,
+    esta função primeiro normaliza cada código pela sua AST (via normalizeCode),
+    substituindo detalhes de autoria (nomes, literais) por tokens genéricos.
+    Em seguida aplica o mesmo pipeline de n-gramas e índice de Jaccard.
+
+    Isso permite detectar plágio estrutural mesmo quando o suspeito renomeou
+    variáveis, alterou constantes ou reformatou o código.
+
+    Args:
+        text1: código-fonte original (referência).
+        text2: código-fonte suspeito de plágio.
+        window: tamanho do n-grama usado na comparação.
+
+    Returns:
+        Float entre 0 e 1 representando a similaridade estrutural (1 = idênticos).
+        Retorna 0.0 se algum dos códigos não gerar tokens válidos.
+    """
+    tokens1 = normalizeCode(text1)
+    tokens2 = normalizeCode(text2)
+
+    set1 = set(ngrams(tokens1, window))
+    set2 = set(ngrams(tokens2, window))
+
+    combined = set1.union(set2)
+    if not combined:
+        return 0.0
+
+    return len(set1.intersection(set2)) / len(combined)
+
 st.sidebar.write("Configurações")
 x = st.sidebar.select_slider("N-gramas: ", options=range(1, 11))
+use_treesitter = st.sidebar.checkbox("Normalizar com tree-sitter", value=False)
 clicked = st.sidebar.button("Executar Similaridade de plágio")
 st.sidebar.divider()
-st.title("Análise de semelhança bruta")
+st.title("Análise de semelhança de plágio")
 [col1, col2] = st.columns(2)
 
 
-text1 = col1.text_area("Texto original")
-text2 = col2.text_area("Texto suspeito")
+text1 = col1.text_area("Código original")
+text2 = col2.text_area("Código suspeito")
 
 
 
 if (text1 and text2 and clicked):
-    similarity = jaccard(text1, text2, x)
-    st.write(f"Similaridade: {(similarity * 100):.2f}%")
+    raw_sim = jaccard(text1, text2, x)
+    st.write(f"**Similaridade bruta (tokens):** {(raw_sim * 100):.2f}%")
+
+    if use_treesitter:
+        try:
+            norm_sim = jaccardNormalized(text1, text2, x)
+            st.write(f"**Similaridade estrutural (tree-sitter):** {(norm_sim * 100):.2f}%")
+
+            with st.expander("Tokens normalizados"):
+                nc1, nc2 = st.columns(2)
+                nc1.write("**Original normalizado:**")
+                nc1.code(" ".join(normalizeCode(text1)))
+                nc2.write("**Suspeito normalizado:**")
+                nc2.code(" ".join(normalizeCode(text2)))
+        except Exception as e:
+            st.error(f"Erro na normalização tree-sitter: {e}")
 
 
 # ------------------------------------------------------------------

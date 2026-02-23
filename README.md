@@ -8,7 +8,7 @@ Este projeto implementa duas funcionalidades baseadas em n-gramas: detecção de
 
 ```
 app.py           — aplicação Streamlit com toda a lógica de n-gramas
-requirements.txt — dependências do projeto
+requirements.txt — dependências do projeto (inclui tree-sitter para normalização de AST)
 dataset/         — arquivos .c usados como referência local
 ```
 
@@ -198,13 +198,72 @@ def jaccard(text1, text2, window=3):
 
 Enquanto `trainModel()` usa contagens de n-gramas para estimar probabilidades condicionais, `jaccard()` usa os n-gramas como "impressão digital" do texto: dois textos com muitos n-gramas em comum são provavelmente similares. O índice resultante varia entre 0 (nenhum n-grama em comum) e 1 (conjuntos idênticos).
 
+### Normalização estrutural com tree-sitter
+
+A comparação bruta é sensível a diferenças superficiais: renomear variáveis, trocar constantes ou reformatar o código reduz a similaridade mesmo que a lógica seja idêntica. Para contornar isso, a função `jaccardNormalized()` usa o tree-sitter para parsear o código C e gerar uma sequência normalizada antes de aplicar os n-gramas.
+
+A normalização percorre a AST e substitui tokens pelo seu tipo semântico:
+
+| Token original | Token normalizado |
+|---|---|
+| `sum`, `i`, `printf` (identificadores) | `ID` |
+| `int`, `char` (tipos definidos pelo usuário) | `TYPE` |
+| `42`, `3.14`, `true`, `false` | `NUM` |
+| `"hello"`, `'a'` | `STR` |
+| `// comentário`, `/* bloco */` | ignorado |
+| `if`, `while`, `return`, `=`, `+`, `{` | mantido como está |
+
+Assim, dois programas com lógica idêntica mas variáveis renomeadas produzem sequências normalizadas praticamente idênticas — o que aumenta a sensibilidade à detecção de plágio estrutural e reduz falsos negativos.
+
 ---
 
 ## Executando o Projeto
 
+### Pré-requisitos
+
+- Python 3.9 ou superior
+- pip
+
+### Instalação
+
+1. Clone o repositório:
+
+```bash
+git clone <url-do-repositorio>
+cd disciplina-inteligencia-artificial
+```
+
+2. Crie e ative um ambiente virtual:
+
+```bash
+python -m venv venv
+source venv/bin/activate      # Linux/macOS
+venv\Scripts\activate         # Windows
+```
+
+3. Instale as dependências:
+
 ```bash
 pip install -r requirements.txt
+```
+
+### Rodando a aplicação
+
+```bash
 streamlit run app.py
 ```
 
-Na barra lateral, configure o tamanho do n-grama, o dataset do HuggingFace e o número de amostras de treino. Para predição de código é necessário um token de acesso ao HuggingFace com permissão ao dataset `bigcode/the-stack`.
+A interface abrirá automaticamente no navegador em `http://localhost:8501`.
+
+### Configuração da barra lateral
+
+| Opção | Descrição |
+|---|---|
+| N-gramas | Tamanho da janela usada em todas as comparações (1–10) |
+| Normalizar com tree-sitter | Ativa a normalização estrutural da AST na comparação de plágio |
+| Dataset HuggingFace | Identificador do dataset para treinamento do modelo de predição |
+| Subset (data_dir) | Subconjunto do dataset (ex: `data/c` para código C) |
+| Amostras para treino | Número de arquivos processados no treinamento |
+| HuggingFace Token | Token de acesso para datasets privados (ex: `bigcode/the-stack`) |
+
+> O token HuggingFace também pode ser definido na variável de ambiente `HF_TOKEN` para não precisar digitá-lo na interface.
