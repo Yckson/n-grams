@@ -238,14 +238,14 @@ Assim, dois programas com lógica idêntica mas variáveis renomeadas produzem s
 1. Clone o repositório:
 
 ```bash
-git clone https://github.com/Yckson/disciplina-inteligencia-artificial.git
-cd disciplina-inteligencia-artificial
+git clone https://github.com/Yckson/n-grams.git
+cd n-gramas
 ```
 
 2. Crie e ative um ambiente virtual:
 
 ```bash
-python -m venv venv
+python3 -m venv venv
 source venv/bin/activate      # Linux/macOS
 venv\Scripts\activate         # Windows
 ```
