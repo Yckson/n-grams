@@ -27,7 +27,6 @@ Período: 2025.2
 ```
 app.py           — aplicação Streamlit com toda a lógica de n-gramas
 requirements.txt — dependências do projeto (inclui tree-sitter para normalização de AST)
-dataset/         — arquivos .c usados como referência local
 ```
 
 ---
